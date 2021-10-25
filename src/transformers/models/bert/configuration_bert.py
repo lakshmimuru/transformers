@@ -128,6 +128,7 @@ class BertConfig(PretrainedConfig):
         num_attention_heads=12,
         intermediate_size=3072,
         hidden_act="gelu",
+        K=10,
         hidden_dropout_prob=0.1,
         attention_probs_dropout_prob=0.1,
         max_position_embeddings=512,
@@ -157,6 +158,7 @@ class BertConfig(PretrainedConfig):
         self.position_embedding_type = position_embedding_type
         self.use_cache = use_cache
         self.classifier_dropout = classifier_dropout
+        self.K= K
 
 
 class BertOnnxConfig(OnnxConfig):
