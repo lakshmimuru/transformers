@@ -116,3 +116,8 @@ class ViTConfig(PretrainedConfig):
         self.patch_size = patch_size
         self.num_channels = num_channels
         self.qkv_bias = qkv_bias
+
+
+    def add_memory_config(size,k,return_n):
+
+
