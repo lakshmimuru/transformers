@@ -11,21 +11,73 @@ class ViTMemory():
 		self.means = torch.randn(self.k,self.hidden_dims)
 		self.networks = [SemanticNetwork(config) for i in range(self.k)]
 		self.ema_decay = ema_decay
+		self.l = config.l
 
-	def add_to_memory(self, key, query, value, centre):
-		#Call push_to_memory followed by compute network
+	def add_to_memory(self, query, key,  value, centres):
+
+		query = query.reshape(-1,self.hidden_dims)
+		key = key.reshape(-1,self.hidden_dims)
+		value = value.reshape(-1,self.hidden_dims)
+		centre = centre.reshape(-1,self.l)
+
+		for i in range(self.k):
+			inds_i = torch.sum((centre == i),dim=1).nonzero()
+			if inds_i.shape[0] > 0:
+				self.networks[i].push_to_memory(query[inds_i],key[inds_i],value[inds_i])
+				self.networks[i].compute_network()
+				self.update_means(i)
 
 
-	def retrieve(self, query):
-		#Do knn and return {key,value} pairs
+	def return_center(self, query):
+
+		sim = torch.matmul(query,self.means.transpose(0,1))
+		_,top_l = torch.topk(sim,self.l)
+
+		return top_l
+
+	def retrieve(self, query, top_m = 5):
+
+		sim = torch.matmul(query,self.means.transpose(0,1))
+		_,top_l = torch.topk(sim,self.l)
+		top_1 = top_l[:,0]
+		key = torch.zeros(query.shape[0],top_m,self.hidden_dims)
+		value = torch.zeros(query.shape[0],top_m,self.hidden_dims)
+
+		for i in range(self.k):
+
+			key_i, value_i = self.networks[i].return_key_value(top_m)
+			key[(top_1==i).nonzero()] = key_i
+			value[(top_1 ==i).nonzero()] = value_i
+
+		return key, value, top_l
+
+
 
 	def update_means(self,i):
 
 		self.means[i] = self.ema_decay*self.means[i]\
 						+ (1-self.ema_decay)*self.networks[i].return_mean()
 
+	def check_minimum_entries(self, top_m=5):
 
-		
+		has_min = True
+
+		for i in range(self.k):
+
+			has_min = has_min and (self.networks[i].ptr>top_m-1 or self.networks[i].memory_full)
+
+			if has_min == False:
+
+				break
+
+		return has_min
+
+	def save_memory(self,fname):
+		#todo
+
+	def load_memory(self,fname)
+
+
 
 class SemanticNetwork():
 
@@ -63,14 +115,14 @@ class SemanticNetwork():
 	def compute_network(self):
 
 		if self.memory_full == False:
-			attention_scores = torch.matmul(query[:self.ptr],key[:self.ptr].transpose(0,1))		
+			attention_scores = torch.matmul(query[:self.ptr],key[:self.ptr].transpose(0,1))/math.sqrt(self.hidden_dims)
 		else:
 			attention_scores = torch.matmul(query,key)
-	
 		self.M = nn.Softmax(dim=-1)(attention_scores).transpose(0,1)
 		v,e = torch.linalg.eig(self.M)
 		largest = torch.argsort(torch.real(v))[-1].item()
-		self.token_rank = e[:,ind]/torch.sum(e[:,largest])
+		self.token_rank = e[:,largest]/torch.sum(e[:,largest])
+		self.inds_rank = torch.argsort(self.token_rank)
 
 	def return_mean(self):
 
@@ -78,8 +130,12 @@ class SemanticNetwork():
 
 	def return_key_value(self,top_m =5):
 
-		inds = torch.argsort(self.token_rank)[-top_m:]
+		inds = self.inds_rank[-top_m:]
 		return self.key[inds], self.value[inds]
+
+	def save_network(self):
+
+	def load_network(self):
 
 
 
