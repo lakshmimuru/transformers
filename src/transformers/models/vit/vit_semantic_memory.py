@@ -1,3 +1,6 @@
+
+#Author: Bhishma Dedhia
+
 import numpy as np 
 import torch as torch
 
@@ -73,9 +76,18 @@ class ViTMemory():
 		return has_min
 
 	def save_memory(self,fname):
-		#todo
 
-	def load_memory(self,fname)
+		checkpoint = dict()
+		for i in range(self.k):
+			checkpoint[str(i)] = self.networks[i].return_network_dict()
+		np.save(checkpoint,fname+'memory.npz') 
+
+
+	def load_memory(self,fname):
+
+		checkpoint = np.load(fname+'memory.npz')
+		for i in range(self.k):
+			self.networks[i].load_network(checkpoint[()][str(i)])
 
 
 
@@ -106,9 +118,8 @@ class SemanticNetwork():
 			self.value[:n-(self.size-self.ptr)] = values[self.size-self.ptr:] 
 		else:
 			self.query[self.ptr:self.ptr+n] = queries
-			self.keys[self.ptr:self.ptr+n] = keys
-			self.values[self.ptr:self.ptr+n] = values
-
+			self.key[self.ptr:self.ptr+n] = keys
+			self.value[self.ptr:self.ptr+n] = values
 		self.ptr = (self.ptr+n) %self.size
 
 
@@ -133,9 +144,26 @@ class SemanticNetwork():
 		inds = self.inds_rank[-top_m:]
 		return self.key[inds], self.value[inds]
 
-	def save_network(self):
+	def return_network_dict(self):
 
-	def load_network(self):
+		checkpoint = {'ptr':self.ptr,
+					  'query':self.query,
+					  'key':self.key,
+					  'value':self.value,
+					  'memory_full':1 if self.memory_full else 0
+					 }
+
+		return checkpoint
+
+
+	def load_network(self,checkpoint):
+
+		self.ptr = checkpoint['ptr']
+		self.query = checkpoint['query']
+		self.key = checkpoint['key']
+		self.value = checkpoint['value']
+		self.memory_full = True if checkpoint['memory_full'] == 1 else False
+
 
 
 

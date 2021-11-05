@@ -4,6 +4,10 @@ import math
 
 import torch
 import torch.utils.checkpoint
+
+#Author: Bhishma Dedhia
+
+
 from torch import nn
 from torch.nn import CrossEntropyLoss, MSELoss
 
@@ -374,8 +378,13 @@ class ViTModelMemory(ViTPreTrainedModel):
         )
     def save_memory(self,filename):
 
+    	self.encoder.layer[-1].attention.attention.memory.save_memory(filename)
 
     def load_memory(self,filename):
+
+    	self.encoder.layer[-1].attention.attention.memory.load_memory(filename)
+
+
 
 class ViTForImageClassificationMemory(ViTPreTrainedModel):
     def __init__(self, config):
