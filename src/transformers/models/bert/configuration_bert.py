@@ -158,7 +158,28 @@ class BertConfig(PretrainedConfig):
         self.position_embedding_type = position_embedding_type
         self.use_cache = use_cache
         self.classifier_dropout = classifier_dropout
-        self.K= K
+    
+    def add_syn_ctrl_config(
+        self,
+        K,
+        pre_int_len,
+        post_int_len,
+        feature_dim,
+        time_range,
+        seq_range,
+        cont_dim,
+        discrete_dim,
+        classes):
+
+        self.K = K
+        self.pre_int_len = pre_int_len
+        self.post_int_len = post_int_len
+        self.feature_dim = feature_dim
+        self.time_range = time_range
+        self.seq_range = seq_range
+        self.cont_dim = cont_dim
+        self.discrete_dim = discrete_dim
+        self.classes = classes
 
 
 class BertOnnxConfig(OnnxConfig):

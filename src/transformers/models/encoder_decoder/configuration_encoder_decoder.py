@@ -104,8 +104,6 @@ class EncoderDecoderConfig(PretrainedConfig):
 
         return cls(encoder=encoder_config.to_dict(), decoder=decoder_config.to_dict(), **kwargs)
 
-    def set_seq_length(self, ):
-
     def to_dict(self):
         """
         Serializes this instance to a Python dictionary. Override the default `to_dict()` from `PretrainedConfig`.

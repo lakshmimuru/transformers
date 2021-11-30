@@ -158,6 +158,8 @@ class EncoderDecoderModel(PreTrainedModel):
         ), "Either a configuration or an Encoder and a decoder has to be provided"
         if config is None:
             config = EncoderDecoderConfig.from_encoder_decoder_configs(encoder.config, decoder.config)
+            config.encoder.K = encoder.config.K
+            config.decoder.K = decoder.config.K
         else:
             assert isinstance(config, self.config_class), f"config: {config} has to be of type {self.config_class}"
         # initialize with config
@@ -195,8 +197,8 @@ class EncoderDecoderModel(PreTrainedModel):
         ), "The encoder {} should not have a LM Head. Please use a model without LM Head"
 
         # tie encoder, decoder weights if config set accordingly
-        self.tie_weights()
-
+        #self.tie_weights()
+    '''
     def tie_weights(self):
         # tie encoder & decoder if needed
         if self.config.tie_encoder_decoder:
@@ -205,7 +207,7 @@ class EncoderDecoderModel(PreTrainedModel):
             self._tie_encoder_decoder_weights(
                 self.encoder, self.decoder._modules[decoder_base_model_prefix], self.decoder.base_model_prefix
             )
-
+    '''
     def get_encoder(self):
         return self.encoder
 
@@ -441,7 +443,7 @@ class EncoderDecoderModel(PreTrainedModel):
             encoder_hidden_states=encoder_hidden_states,
             encoder_attention_mask=attention_mask,
             inputs_embeds=decoder_inputs_embeds,
-            labels=labels,
+            #labels=labels,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             use_cache=use_cache,
@@ -456,7 +458,7 @@ class EncoderDecoderModel(PreTrainedModel):
         return Seq2SeqLMOutput(
             #loss=decoder_outputs.loss,
             #logits=decoder_outputs.logits,
-            decoder_last_hidden_state=decoder_outputs.last_hidden_state,
+            #decoder_last_hidden_state=decoder_outputs.last_hidden_state,
             past_key_values=decoder_outputs.past_key_values,
             decoder_hidden_states=decoder_outputs.hidden_states,
             decoder_attentions=decoder_outputs.attentions,

@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import torch
+from torch import Tensor
 import torch.utils.checkpoint
 from packaging import version
 from torch import nn
@@ -955,6 +956,7 @@ class BertModelSynCtrl(BertPreTrainedModel):
         if attention_mask is None:
             attention_mask = torch.ones(((batch_size, seq_length + past_key_values_length)), device=device)
 
+        '''
         if token_type_ids is None:
             if hasattr(self.embeddings, "token_type_ids"):
                 buffered_token_type_ids = self.embeddings.token_type_ids[:, :seq_length]
@@ -962,6 +964,7 @@ class BertModelSynCtrl(BertPreTrainedModel):
                 token_type_ids = buffered_token_type_ids_expanded
             else:
                 token_type_ids = torch.zeros(input_shape, dtype=torch.long, device=device)
+        '''
 
         # We can provide a self-attention mask of dimensions [batch_size, from_seq_length, to_seq_length]
         # ourselves in which case we just need to make it broadcastable to all heads.
@@ -1021,7 +1024,7 @@ class BertModelSynCtrl(BertPreTrainedModel):
             cross_attentions=encoder_outputs.cross_attentions,
         )
 
-    def get_extended_attention_mask_syn_ctrl(self, attention_mask: Tensor, input_shape: Tuple[int], device: device) -> Tensor:
+    def get_extended_attention_mask_syn_ctrl(self, attention_mask: torch.Tensor, input_shape: Tuple[int], device: torch.device) -> Tensor:
         """
         Makes broadcastable attention and causal masks so that future and masked tokens are ignored.
 
@@ -1047,14 +1050,13 @@ class BertModelSynCtrl(BertPreTrainedModel):
             if self.config.is_decoder:
                 batch_size, seq_length = input_shape
                 K = self.config.K
-                seq_length_single = int(seq_length/K) #seq_lenght is always a multiple of K
+                seq_length_single = int(seq_length/K) #seq_length is always a multiple of K
                 seq_ids_single = torch.arange(seq_length_single, device=device).reshape(-1)
-                seq_ids = torch.stack((seq_ids_single,)*K,dim=0).permute(1,0,2).reshape(-1)
-                seq_ids_target = torch.zeros(K)
+                seq_ids = torch.stack((seq_ids_single,)*K,dim=0).permute(1,0).reshape(-1)
+                seq_ids_target = torch.zeros(K).to(device)
                 seq_ids_target[-1] =0.5
                 seq_ids = seq_ids + torch.stack((seq_ids_target,)*seq_length_single).reshape(-1)
-                #causal_mask = seq_ids[None, None, :].repeat(batch_size, seq_length, 1) <= seq_ids[None, :, None]
-                causal_mask = seq_ids.repeat(1,seq_length,1)<=seq_ids[None,:,None]
+                causal_mask = seq_ids[None,None,:].repeat(batch_size,seq_length,1)<=seq_ids[None,:,None]
                 # in case past_key_values are used we need to add a prefix ones mask to the causal mask
                 # causal and attention masks must have same type with pytorch version < 1.3
                 causal_mask = causal_mask.to(attention_mask.dtype)
