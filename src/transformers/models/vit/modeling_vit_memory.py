@@ -17,8 +17,8 @@ from ...modeling_outputs import BaseModelOutput, BaseModelOutputWithPooling, Seq
 from ...modeling_utils import PreTrainedModel, find_pruneable_heads_and_indices, prune_linear_layer
 from ...utils import logging
 from .configuration_vit import ViTConfig
-from modeling_vit import ViTLayer, ViTSelfOutput, ViTIntermediate, ViTOutput, ViTPreTrainedModel, ViTPooler
-from vit_semantic_memory import ViTMemory
+from .modeling_vit import ViTLayer, ViTSelfOutput, ViTIntermediate, ViTOutput, ViTPreTrainedModel, ViTPooler, ViTEmbeddings
+from .vit_semantic_memory import ViTMemory
 
 
 logger = logging.get_logger(__name__)
@@ -53,72 +53,75 @@ class ViTSelfAttentionMemory(nn.Module):
         return x.permute(0, 2, 1, 3)
 
     def forward(self, hidden_states, head_mask=None, output_attentions=False):
-        mixed_query_layer_exc= self.query(hidden_states)
+        mixed_query_layer= self.query(hidden_states)
 
         if not(self.mem_min_full):
-        	self.mem_min_full = self.memory.check_minimum_entries(self.top_m)
-        	centers = self.memory.return_center(mixed_query_layer[:,0].cpu())
-	    	all_key = self.key(hidden_states)
-	    	all_value = self.value(hidden_states)
-	    	key_layer = self.transpose_for_scores(all_key)
-	        value_layer = self.transpose_for_scores(all_value)
-	        query_layer = self.transpose_for_scores(mixed_query_layer)
-	        # Take the dot product between "query" and "key" to get the raw attention scores.
-	        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
+            #print('Mry not used')
+            centers = self.memory.return_center(mixed_query_layer[:,0].cpu())
+            all_key = self.key(hidden_states)
+            all_value = self.value(hidden_states)
+            key_layer = self.transpose_for_scores(all_key)
+            value_layer = self.transpose_for_scores(all_value)
+            query_layer = self.transpose_for_scores(mixed_query_layer)
+            # Take the dot product between "query" and "key" to get the raw attention scores.
+            attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
 
-	        attention_scores = attention_scores / math.sqrt(self.attention_head_size)
+            attention_scores = attention_scores / math.sqrt(self.attention_head_size)
 
-	        # Normalize the attention scores to probabilities.
-	        attention_probs = nn.Softmax(dim=-1)(attention_scores)
+            # Normalize the attention scores to probabilities.
+            attention_probs = nn.Softmax(dim=-1)(attention_scores)
 
-	        # This is actually dropping out entire tokens to attend to, which might
-	        # seem a bit unusual, but is taken from the original Transformer paper.
-	        attention_probs = self.dropout(attention_probs)
+            # This is actually dropping out entire tokens to attend to, which might
+            # seem a bit unusual, but is taken from the original Transformer paper.
+            attention_probs = self.dropout(attention_probs)
 
-	        # Mask heads if we want to
-	        if head_mask is not None:
-	            attention_probs = attention_probs * head_mask
+            # Mask heads if we want to
+            if head_mask is not None:
+                attention_probs = attention_probs * head_mask
 
-	        context_layer = torch.matmul(attention_probs, value_layer)
+            context_layer = torch.matmul(attention_probs, value_layer)
 
         else:
-	       	retrieved_key, retrieved_value, centers = self.memory.retrieve(mixed_query_layer[:,0].cpu())
-	       	retrieved_key = retrieved_key.to(hidden_states.get_device())
-	       	retrieved_value = retrieved_value.to(hidden_states.get_device())
-	       	all_key = self.key(hidden_states)
-	    	all_value = self.value(hidden_states)
+            #print('Memory used')
+            retrieved_key, retrieved_value, centers = self.memory.retrieve(mixed_query_layer[:,0].cpu())
+            retrieved_key = retrieved_key.to(hidden_states.get_device())
+            retrieved_value = retrieved_value.to(hidden_states.get_device())
+            all_key = self.key(hidden_states)
+            all_value = self.value(hidden_states)
 
-	        non_cls_key_layer = self.transpose_for_scores(all_key)
-	        non_cls_value_layer = self.transpose_for_scores(all_value)
-	        non_cls_query_layer = self.transpose_for_scores(mixed_query_layer[:,1:])
-	    	
-	    	cls_key_layer = self.transpose_for_scores(torch.cat((all_key,retrieved_key),1))
-	        cls_value_layer = self.transpose_for_scores(torch.cat((all_value,retrieved_value),1))
-	        cls_query_layer = self.transpose_for_scores(mixed_query_layer[:,0].reshape(-1,1,self.all_head_size))
+            non_cls_key_layer = self.transpose_for_scores(all_key)
+            non_cls_value_layer = self.transpose_for_scores(all_value)
+            non_cls_query_layer = self.transpose_for_scores(mixed_query_layer[:,1:])
+            
+            cls_key_layer = self.transpose_for_scores(torch.cat((all_key,retrieved_key),1))
+            cls_value_layer = self.transpose_for_scores(torch.cat((all_value,retrieved_value),1))
+            cls_query_layer = self.transpose_for_scores(mixed_query_layer[:,0].reshape(-1,1,self.all_head_size))
 
-		    
-	        # Take the dot product between "query" and "key" to get the raw attention scores.
-	        non_cls_attention_scores = torch.matmul(non_cls_query_layer, non_cls_key_layer.transpose(-1, -2))
-	        cls_attention_scores = torch.matmul(cls_query_layer,cls_key_layer.transpose(-1,-2))
-	        non_cls_attention_scores = non_cls_attention_scores / math.sqrt(self.attention_head_size)
-	        cls_attention_scores = cls_attention_scores / math.sqrt(self.attention_head_size)
-	        # Normalize the attention scores to probabilities.
-	        non_cls_attention_probs = nn.Softmax(dim=-1)(non_cls_attention_scores)
-	        cls_attention_probs = nn.Softmax(dim=-1)(cls_attention_scores)
-	        # This is actually dropping out entire tokens to attend to, which might
-	        # seem a bit unusual, but is taken from the original Transformer paper.
-	        non_cls_attention_probs = self.dropout(non_cls_attention_probs)
-	        cls_attention_probs = self.dropout(cls_attention_probs)
-	        # Mask heads if we want to
-	        if head_mask is not None:
-	            non_cls_attention_probs = non_cls_attention_probs * head_mask
-	            cls_attention_probs = cls_attention_probs * head_mask
+            
+            # Take the dot product between "query" and "key" to get the raw attention scores.
+            non_cls_attention_scores = torch.matmul(non_cls_query_layer, non_cls_key_layer.transpose(-1, -2))
+            cls_attention_scores = torch.matmul(cls_query_layer,cls_key_layer.transpose(-1,-2))
+            non_cls_attention_scores = non_cls_attention_scores / math.sqrt(self.attention_head_size)
+            cls_attention_scores = cls_attention_scores / math.sqrt(self.attention_head_size)
+            # Normalize the attention scores to probabilities.
+            non_cls_attention_probs = nn.Softmax(dim=-1)(non_cls_attention_scores)
+            cls_attention_probs = nn.Softmax(dim=-1)(cls_attention_scores)
+            # This is actually dropping out entire tokens to attend to, which might
+            # seem a bit unusual, but is taken from the original Transformer paper.
+            non_cls_attention_probs = self.dropout(non_cls_attention_probs)
+            cls_attention_probs = self.dropout(cls_attention_probs)
+            # Mask heads if we want to
+            if head_mask is not None:
+                non_cls_attention_probs = non_cls_attention_probs * head_mask
+                cls_attention_probs = cls_attention_probs * head_mask
 
-	        non_cls_context_layer = torch.matmul(non_cls_attention_probs, non_cls_value_layer)
-	        cls_context_layer = torch.matmul(cls_attention_probs, cls_value_layer)
-	        context_layer = torch.cat((cls_context_layer,non_cls_context_layer),dim=2)
+            non_cls_context_layer = torch.matmul(non_cls_attention_probs, non_cls_value_layer)
+            cls_context_layer = torch.matmul(cls_attention_probs, cls_value_layer)
+            context_layer = torch.cat((cls_context_layer,non_cls_context_layer),dim=2)
 
-	    self.memory.add_to_memory(mixed_query_layer[:,0].cpu(),all_key[:,0].cpu(),all_value[:,0].cpu(),centers)
+        self.memory.add_to_memory(mixed_query_layer[:,0].cpu(),all_key[:,0].cpu(),all_value[:,0].cpu(),centers)
+        if not(self.mem_min_full):
+            self.mem_min_full = self.memory.check_minimum_entries(self.top_m)
 
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
         new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
@@ -229,7 +232,7 @@ class ViTEncoderMemory(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self.layer = nn.ModuleList([ViTLayer(config) for _ in range(config.num_hidden_layers)-1]+[ViTLayerMemory(config)])
+        self.layer = nn.ModuleList([ViTLayer(config) for _ in range(config.num_hidden_layers-1)]+[ViTLayerMemory(config)])
         self.gradient_checkpointing = False
 
     def forward(
@@ -307,8 +310,6 @@ class ViTModelMemory(ViTPreTrainedModel):
         for layer, heads in heads_to_prune.items():
             self.encoder.layer[layer].attention.prune_heads(heads)
 
-    @add_start_docstrings_to_model_forward(VIT_INPUTS_DOCSTRING)
-    @replace_return_docstrings(output_type=BaseModelOutputWithPooling, config_class=_CONFIG_FOR_DOC)
     def forward(
         self,
         pixel_values=None,
@@ -378,11 +379,11 @@ class ViTModelMemory(ViTPreTrainedModel):
         )
     def save_memory(self,filename):
 
-    	self.encoder.layer[-1].attention.attention.memory.save_memory(filename)
+        self.encoder.layer[-1].attention.attention.memory.save_memory(filename)
 
     def load_memory(self,filename):
 
-    	self.encoder.layer[-1].attention.attention.memory.load_memory(filename)
+        self.encoder.layer[-1].attention.attention.memory.load_memory(filename)
 
 
 
@@ -398,8 +399,6 @@ class ViTForImageClassificationMemory(ViTPreTrainedModel):
 
         self.init_weights()
 
-    @add_start_docstrings_to_model_forward(VIT_INPUTS_DOCSTRING)
-    @replace_return_docstrings(output_type=SequenceClassifierOutput, config_class=_CONFIG_FOR_DOC)
     def forward(
         self,
         pixel_values=None,

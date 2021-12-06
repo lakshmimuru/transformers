@@ -118,12 +118,13 @@ class ViTConfig(PretrainedConfig):
         self.qkv_bias = qkv_bias
 
 
-    def add_memory_config(size,k,size,l=2,top_m=5):
+    def add_memory_config(self,k,size,l=2,top_m=5, ema_decay = 0.99):
 
         self.size = size
         self.k = k
         self.l = l
         self.top_m = top_m
+        self.ema_decay = ema_decay
 
 
 

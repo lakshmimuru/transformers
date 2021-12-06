@@ -3,6 +3,8 @@
 
 import numpy as np 
 import torch as torch
+import math
+import torch.nn as nn
 
 
 class ViTMemory():
@@ -13,7 +15,7 @@ class ViTMemory():
 		self.hidden_dims = config.hidden_size
 		self.means = torch.randn(self.k,self.hidden_dims)
 		self.networks = [SemanticNetwork(config) for i in range(self.k)]
-		self.ema_decay = ema_decay
+		self.ema_decay = config.ema_decay
 		self.l = config.l
 
 	def add_to_memory(self, query, key,  value, centres):
@@ -21,10 +23,10 @@ class ViTMemory():
 		query = query.reshape(-1,self.hidden_dims)
 		key = key.reshape(-1,self.hidden_dims)
 		value = value.reshape(-1,self.hidden_dims)
-		centre = centre.reshape(-1,self.l)
+		centre = centres.reshape(-1,self.l)
 
 		for i in range(self.k):
-			inds_i = torch.sum((centre == i),dim=1).nonzero()
+			inds_i = torch.sum((centre == i),dim=1).nonzero().reshape(-1)
 			if inds_i.shape[0] > 0:
 				self.networks[i].push_to_memory(query[inds_i],key[inds_i],value[inds_i])
 				self.networks[i].compute_network()
@@ -73,6 +75,9 @@ class ViTMemory():
 
 				break
 
+		if has_min == True:
+			print('Minimum entries in memory')
+
 		return has_min
 
 	def save_memory(self,fname):
@@ -93,14 +98,14 @@ class ViTMemory():
 
 class SemanticNetwork():
 
-	def __init__(self, config, mean):
+	def __init__(self, config):
 
-		self.size = config.memory_size
+		self.size = config.size
 		self.hidden_dims = config.hidden_size
 		self.ptr = 0
-		self.query = torch.zeros(self.size,self.hidden_size)
-		self.key = torch.zeros(self.size, self.hidden_size)
-		self.value = torch.zeros(self.size,self.hidden_size)
+		self.query = torch.zeros(self.size,self.hidden_dims)
+		self.key = torch.zeros(self.size, self.hidden_dims)
+		self.value = torch.zeros(self.size,self.hidden_dims)
 		self.memory_full = False
 		self.token_rank = torch.zeros(self.size)
 
@@ -126,12 +131,14 @@ class SemanticNetwork():
 	def compute_network(self):
 
 		if self.memory_full == False:
-			attention_scores = torch.matmul(query[:self.ptr],key[:self.ptr].transpose(0,1))/math.sqrt(self.hidden_dims)
+			attention_scores = torch.matmul(self.query[:self.ptr],self.key[:self.ptr].transpose(0,1))/math.sqrt(self.hidden_dims)
 		else:
-			attention_scores = torch.matmul(query,key)
+			attention_scores = torch.matmul(self.query,self.key)
 		self.M = nn.Softmax(dim=-1)(attention_scores).transpose(0,1)
 		v,e = torch.linalg.eig(self.M)
-		largest = torch.argsort(torch.real(v))[-1].item()
+		e = torch.real(e)
+		v = torch.real(v)
+		largest = torch.argsort(v)[-1].item()
 		self.token_rank = e[:,largest]/torch.sum(e[:,largest])
 		self.inds_rank = torch.argsort(self.token_rank)
 
