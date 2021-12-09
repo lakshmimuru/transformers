@@ -56,7 +56,7 @@ class ViTSelfAttentionMemory(nn.Module):
         mixed_query_layer= self.query(hidden_states)
 
         if not(self.mem_min_full):
-            #print('Mry not used')
+            #print('Memory not used')
             centers = self.memory.return_center(mixed_query_layer[:,0].cpu())
             all_key = self.key(hidden_states)
             all_value = self.value(hidden_states)
@@ -84,8 +84,8 @@ class ViTSelfAttentionMemory(nn.Module):
         else:
             #print('Memory used')
             retrieved_key, retrieved_value, centers = self.memory.retrieve(mixed_query_layer[:,0].cpu())
-            retrieved_key = retrieved_key.to(hidden_states.get_device())
-            retrieved_value = retrieved_value.to(hidden_states.get_device())
+            retrieved_key = retrieved_key.to(hidden_states.get_device()).detach()
+            retrieved_value = retrieved_value.to(hidden_states.get_device()).detach()
             all_key = self.key(hidden_states)
             all_value = self.value(hidden_states)
 
@@ -122,6 +122,9 @@ class ViTSelfAttentionMemory(nn.Module):
         self.memory.add_to_memory(mixed_query_layer[:,0].cpu(),all_key[:,0].cpu(),all_value[:,0].cpu(),centers)
         if not(self.mem_min_full):
             self.mem_min_full = self.memory.check_minimum_entries(self.top_m)
+            if self.mem_min_full:
+                print('Memory minimum filled:')
+                print([network.ptr for network in self.memory.networks])
 
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
         new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
