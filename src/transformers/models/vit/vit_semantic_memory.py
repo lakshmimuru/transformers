@@ -18,8 +18,9 @@ class ViTMemory():
         self.networks = [SemanticNetwork(config) for i in range(self.k)]
         self.ema_decay = config.ema_decay
         self.l = config.l
+        self.top_m = config.top_m
 
-    def add_to_memory(self, query, key,  value, centres):
+    def add_to_memory(self, query, key,  value, centres, labels):
 
         query = query.reshape(-1,self.hidden_dims)
         key = key.reshape(-1,self.hidden_dims)
@@ -44,19 +45,19 @@ class ViTMemory():
 
         return top_l
 
-    def retrieve(self, query, top_m = 4):
+    def retrieve(self, query):
 
         sim = torch.matmul(query,self.means.transpose(0,1))
         _,top_l = torch.topk(sim,self.l)
         top_1 = top_l[:,0]
-        key = torch.zeros(query.shape[0],top_m,self.hidden_dims)
-        value = torch.zeros(query.shape[0],top_m,self.hidden_dims)
+        key = torch.zeros(query.shape[0],self.top_m,self.hidden_dims)
+        value = torch.zeros(query.shape[0],self.top_m,self.hidden_dims)
 
         for i in range(self.k):
 
-            key_i, value_i = self.networks[i].return_key_value(top_m)
+            key_i, value_i = self.networks[i].return_key_value()
             key[(top_1==i).nonzero()] = key_i
-            value[(top_1 ==i).nonzero()] = value_i
+            value[(top_1 ==i).nonzero()] = value_i            
 
         return key, value, top_l
 
@@ -67,12 +68,12 @@ class ViTMemory():
         self.means[i] = self.ema_decay*self.means[i]\
                         + (1-self.ema_decay)*self.networks[i].return_mean()
 
-    def check_minimum_entries(self, top_m=4):
+    def check_minimum_entries(self):
 
         has_min = True
 
         for i in range(self.k):
-            has_min = has_min and (self.networks[i].ptr>top_m-1 or self.networks[i].memory_full)
+            has_min = has_min and (self.networks[i].ptr>self.top_m-1 or self.networks[i].memory_full)
             if has_min == False:
                 break
             
@@ -83,14 +84,18 @@ class ViTMemory():
         checkpoint = dict()
         for i in range(self.k):
             checkpoint[str(i)] = self.networks[i].return_network_dict()
-        np.save(checkpoint,fname+'memory.npz') 
+            checkpoint['mean'] = self.means[i]
+        print(fname)
+        torch.save(checkpoint,fname+'memory.pt') 
 
 
     def load_memory(self,fname):
 
-        checkpoint = np.load(fname+'memory.npz')
+        checkpoint = torch.load(fname+'memory.pt')
         for i in range(self.k):
-            self.networks[i].load_network(checkpoint[()][str(i)])
+            self.networks[i].load_network(checkpoint[str(i)])
+            self.networks[i].compute_network()
+            self.means[i] = checkpoint['mean']
 
 
 
@@ -99,6 +104,7 @@ class SemanticNetwork():
     def __init__(self, config):
 
         self.size = config.size
+        self.top_m = config.top_m
         self.hidden_dims = config.hidden_size
         self.ptr = 0
         self.query = torch.zeros(self.size,self.hidden_dims)
@@ -140,12 +146,15 @@ class SemanticNetwork():
         self.inds_rank = torch.argsort(self.token_rank)
 
     def return_mean(self):
+        
+        if self.memory_full == False:
+            return torch.mean(self.key[:self.ptr],dim=0)
+        else:
+            return torch.mean(self.key)
 
-        return torch.mean(self.key,dim=0)
+    def return_key_value(self):
 
-    def return_key_value(self,top_m =4):
-
-        inds = self.inds_rank[-top_m:]
+        inds = self.inds_rank[-self.top_m:]
         return self.key[inds], self.value[inds]
 
     def return_network_dict(self):

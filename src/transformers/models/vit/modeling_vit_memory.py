@@ -45,6 +45,7 @@ class ViTSelfAttentionMemory(nn.Module):
         self.memory = ViTMemory(config)
         self.top_m = config.top_m
         self.mem_min_full = False
+        self.freeze_memory = False
 
 
     def transpose_for_scores(self, x):
@@ -52,7 +53,7 @@ class ViTSelfAttentionMemory(nn.Module):
         x = x.view(*new_x_shape)
         return x.permute(0, 2, 1, 3)
 
-    def forward(self, hidden_states, head_mask=None, output_attentions=False):
+    def forward(self, hidden_states, head_mask=None, output_attentions=False, labels=None):
         mixed_query_layer= self.query(hidden_states)
 
         if not(self.mem_min_full):
@@ -118,10 +119,13 @@ class ViTSelfAttentionMemory(nn.Module):
             non_cls_context_layer = torch.matmul(non_cls_attention_probs, non_cls_value_layer)
             cls_context_layer = torch.matmul(cls_attention_probs, cls_value_layer)
             context_layer = torch.cat((cls_context_layer,non_cls_context_layer),dim=2)
+            attention_probs = (cls_attention_probs, non_cls_attention_probs)
 
-        self.memory.add_to_memory(mixed_query_layer[:,0].cpu(),all_key[:,0].cpu(),all_value[:,0].cpu(),centers)
+        if self.training and not(self.freeze_memory):
+            self.memory.add_to_memory(mixed_query_layer[:,0].cpu(),all_key[:,0].cpu(),all_value[:,0].cpu(),centers, labels)
+            
         if not(self.mem_min_full):
-            self.mem_min_full = self.memory.check_minimum_entries(self.top_m)
+            self.mem_min_full = self.memory.check_minimum_entries()
             if self.mem_min_full:
                 print('Memory minimum filled:')
                 print([network.ptr for network in self.memory.networks])
@@ -159,8 +163,8 @@ class ViTAttentionMemory(nn.Module):
         self.attention.all_head_size = self.attention.attention_head_size * self.attention.num_attention_heads
         self.pruned_heads = self.pruned_heads.union(heads)
 
-    def forward(self, hidden_states, head_mask=None, output_attentions=False):
-        self_outputs = self.attention(hidden_states, head_mask, output_attentions)
+    def forward(self, hidden_states, head_mask=None, output_attentions=False, labels = None,):
+        self_outputs = self.attention(hidden_states, head_mask, output_attentions, labels)
 
         attention_output = self.output(self_outputs[0], hidden_states)
 
@@ -196,11 +200,12 @@ class ViTLayerMemory(nn.Module):
         self.layernorm_before = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.layernorm_after = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
 
-    def forward(self, hidden_states, head_mask=None, output_attentions=False):
+    def forward(self, hidden_states, head_mask=None, output_attentions=False, labels = None):
         self_attention_outputs = self.attention(
             self.layernorm_before(hidden_states),  # in ViT, layernorm is applied before self-attention
             head_mask,
             output_attentions=output_attentions,
+            labels = labels,
         )
         attention_output = self_attention_outputs[0]
         outputs = self_attention_outputs[1:]  # add self attentions if we output attention weights
@@ -241,6 +246,7 @@ class ViTEncoderMemory(nn.Module):
     def forward(
         self,
         hidden_states,
+        labels=None,
         head_mask=None,
         output_attentions=False,
         output_hidden_states=False,
@@ -267,9 +273,10 @@ class ViTEncoderMemory(nn.Module):
                     create_custom_forward(layer_module),
                     hidden_states,
                     layer_head_mask,
+                    labels,
                 )
             else:
-                layer_outputs = layer_module(hidden_states, layer_head_mask, output_attentions)
+                layer_outputs = layer_module(hidden_states, layer_head_mask, output_attentions,labels)
 
             hidden_states = layer_outputs[0]
 
@@ -316,6 +323,7 @@ class ViTModelMemory(ViTPreTrainedModel):
     def forward(
         self,
         pixel_values=None,
+        labels = None,
         attention_mask=None,
         head_mask=None,
         output_attentions=None,
@@ -363,6 +371,7 @@ class ViTModelMemory(ViTPreTrainedModel):
         encoder_outputs = self.encoder(
             embedding_output,
             head_mask=head_mask,
+            labels=labels,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
@@ -387,7 +396,7 @@ class ViTModelMemory(ViTPreTrainedModel):
     def load_memory(self,filename):
 
         self.encoder.layer[-1].attention.attention.memory.load_memory(filename)
-
+        self.encoder.layer[-1].attention.attention.mem_min_full = True
 
 
 class ViTForImageClassificationMemory(ViTPreTrainedModel):
@@ -417,6 +426,7 @@ class ViTForImageClassificationMemory(ViTPreTrainedModel):
 
         outputs = self.vit(
             pixel_values,
+            labels = labels,
             head_mask=head_mask,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
