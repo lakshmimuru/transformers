@@ -30,7 +30,7 @@ class ViTMemory():
         for i in range(self.k):
             inds_i = torch.sum((centre == i),dim=1).nonzero().reshape(-1)
             if inds_i.shape[0] > 0:
-                self.networks[i].push_to_memory(query[inds_i],key[inds_i],value[inds_i])
+                self.networks[i].push_to_memory(query[inds_i],key[inds_i],value[inds_i],labels[inds_i])
                 '''
                 print(f'center {i} pushed successfully: {inds_i.shape[0]} tokens')
                 print(f'center {i} memory status: {self.networks[i].memory_full}')
@@ -110,10 +110,11 @@ class SemanticNetwork():
         self.query = torch.zeros(self.size,self.hidden_dims)
         self.key = torch.zeros(self.size, self.hidden_dims)
         self.value = torch.zeros(self.size,self.hidden_dims)
+        self.label = torch.zeros(self.size)
         self.memory_full = False
         self.token_rank = torch.zeros(self.size)
 
-    def push_to_memory(self, queries, keys, values):
+    def push_to_memory(self, queries, keys, values, labels):
 
         n = queries.shape[0]
         self.memory_full = self.memory_full or n+self.ptr>self.size - 1
@@ -124,10 +125,13 @@ class SemanticNetwork():
             self.key[:n-(self.size-self.ptr)] = keys[self.size-self.ptr:] 
             self.value[self.ptr:] = values[:(self.size-self.ptr)]
             self.value[:n-(self.size-self.ptr)] = values[self.size-self.ptr:] 
+            self.label[self.ptr:] = labels[:(self.size-self.ptr)]
+            self.label[:n-(self.size-self.ptr)] = labels[self.size-self.ptr:]
         else:
             self.query[self.ptr:self.ptr+n] = queries
             self.key[self.ptr:self.ptr+n] = keys
             self.value[self.ptr:self.ptr+n] = values
+            self.label[self.ptr:self.ptr+n] = labels
         self.ptr = (self.ptr+n) %self.size
 
 
@@ -163,6 +167,7 @@ class SemanticNetwork():
                       'query':self.query,
                       'key':self.key,
                       'value':self.value,
+                      'label':self.label,
                       'memory_full':1 if self.memory_full else 0
                      }
 
@@ -175,6 +180,7 @@ class SemanticNetwork():
         self.query = checkpoint['query']
         self.key = checkpoint['key']
         self.value = checkpoint['value']
+        self.label = checkpoint['label']
         self.memory_full = True if checkpoint['memory_full'] == 1 else False
 
 
